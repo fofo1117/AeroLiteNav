@@ -205,3 +205,34 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Project-local datasets and simulator assets
+/dataset/
+/dataset_raw/
+/data/aerovla_train_dataset.json
+/envs/
+
+# Model weights and training checkpoints
+/checkpoints/
+/pretrained/
+/openvla-7b/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Training and evaluation outputs
+/wandb/
+/runs/
+/outputs/
+/logs/
+tensorboard/
+events.out.tfevents.*
+
+# Local environments and offline installation archives
+/env_archives/
+/offline_wheels/
+
+# Machine-local secrets
+.env.*
+!.env.example

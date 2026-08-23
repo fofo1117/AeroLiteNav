@@ -2,7 +2,7 @@
 
 # Configuration ------------------------------------
 PROJECT_ROOT="."
-MODEL_DIR="$PROJECT_ROOT/checkpoints/aero_vla"
+MODEL_DIR="${AEROVLA_MODEL_DIR:-$PROJECT_ROOT/checkpoints/aero_vla_r64_b99_bs64_lr2e-4_5epoch}"
 EXP_NAME=$(basename "$MODEL_DIR")
 
 # [SEEN] ----------------------------------
@@ -15,7 +15,7 @@ EXP_NAME=$(basename "$MODEL_DIR")
 # TASK_ID="seen_valset/Carla_Town15"
 # TASK_ID="seen_valset/ModernCityMap"
 # TASK_ID="seen_valset/NewYorkCity"
-TASK_ID="seen_valset/NYCEnvironmentMegapa"
+TASK_ID="${AEROVLA_TASK_ID:-seen_valset/NYCEnvironmentMegapa}"
 # TASK_ID="seen_valset/TropicalIsland"
 
 # [UNSEEN OBJECT] ----------------------------------
@@ -38,7 +38,7 @@ MAP_NAME=$(echo "$TASK_ID" | cut -d'/' -f2)
 TEST_JSON="$PROJECT_ROOT/data/uav_dataset/${CATEGORY}_splits/${MAP_NAME}.json"
 SAVE_DIR="$PROJECT_ROOT/eval_results/${EXP_NAME}/${CATEGORY}/${MAP_NAME}"
 
-GPU_ID=0
+GPU_ID="${AEROVLA_GPU_ID:-0}"
 PORT=$((30000 + GPU_ID * 5000))
 
 echo "========================================================"

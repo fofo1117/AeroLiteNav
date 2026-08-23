@@ -3,7 +3,8 @@
 # ----------------------------- Configuration -----------------------------
 PROJECT_PATH="."
 METRIC_SCRIPT="$PROJECT_PATH/utils/metric.py"
-MODEL_NAME="aerial_vla"
+MODEL_DIR="${AEROVLA_MODEL_DIR:-$PROJECT_PATH/checkpoints/aero_vla_r64_b99_bs64_lr2e-4_5epoch}"
+MODEL_NAME="${AEROVLA_MODEL_NAME:-$(basename "$MODEL_DIR")}"
 
 
 RESULTS_DIR="$PROJECT_PATH/eval_results/$MODEL_NAME"
@@ -31,7 +32,7 @@ for category in "seen_valset" "unseen_map_valset" "unseen_object_valset"; do
             ANALYSIS_ITEM="$category/$MAP_NAME"
             TEMP_LOG=$(mktemp)
             
-            CUDA_VISIBLE_DEVICES=0 python3 $METRIC_SCRIPT \
+            CUDA_VISIBLE_DEVICES=0 python $METRIC_SCRIPT \
                 --root_dir "$RESULTS_DIR" \
                 --analysis_list "$ANALYSIS_ITEM" \
                 --path_type_list $PATH_TYPE_LIST \

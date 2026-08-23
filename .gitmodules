@@ -1,0 +1,3 @@
+[submodule "TravelUAV"]
+	path = TravelUAV
+	url = https://github.com/prince687028/TravelUAV.git

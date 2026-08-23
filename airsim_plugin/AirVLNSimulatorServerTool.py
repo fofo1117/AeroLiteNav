@@ -542,12 +542,15 @@ class EventHandler(object):
                 print(subprocess_execute)
 
                 try:
-                    
-                    p = subprocess.Popen(
-                        subprocess_execute,
-                        stdin=None, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
-                        shell=True,
-                    )
+                    simulator_log_dir = CWD_DIR / 'simulator_logs'
+                    simulator_log_dir.mkdir(parents=True, exist_ok=True)
+                    simulator_log_path = simulator_log_dir / '{}.log'.format(ports[index])
+                    with open(simulator_log_path, 'ab', buffering=0) as simulator_log:
+                        p = subprocess.Popen(
+                            subprocess_execute,
+                            stdin=None, stdout=simulator_log, stderr=subprocess.STDOUT,
+                            shell=True,
+                        )
                     p_s.append(p)
                 except Exception as e:
                     print(
@@ -581,11 +584,15 @@ class EventHandler(object):
         time.sleep(1)
         print(subprocess_execute)
         
-        p = subprocess.Popen(
-                        subprocess_execute,
-                        stdin=None, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
-                        shell=True,
-                    )
+        simulator_log_dir = CWD_DIR / 'simulator_logs'
+        simulator_log_dir.mkdir(parents=True, exist_ok=True)
+        simulator_log_path = simulator_log_dir / '{}.log'.format(port)
+        with open(simulator_log_path, 'ab', buffering=0) as simulator_log:
+            p = subprocess.Popen(
+                subprocess_execute,
+                stdin=None, stdout=simulator_log, stderr=subprocess.STDOUT,
+                shell=True,
+            )
         
     def reopen_scenes(self, ip: str, scen_id_gpu_list: list):
         print(

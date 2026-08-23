@@ -1,4 +1,23 @@
-# AeroVLA: A Vision-Language-Action Model for UAV Navigation via Minimalist End-to-End Control
+# AeroLiteNav: Efficient LLM-Free UAV Navigation
+
+AeroLiteNav explores whether a compact navigation policy can remove the large
+language-model core from a UAV vision-language-action system while retaining
+competitive closed-loop navigation accuracy. It uses
+[AeroVLA](https://github.com/XuPeng23/AeroVLA) as the baseline and preserves its
+released training split, dual-view visual observations, continuous 3-DoF action
+space, landing signal, and TravelUAV evaluation protocol.
+
+The current LLM-free model replaces LLaMA-2, LoRA, and autoregressive action
+tokens with frozen visual/text encoders, a compact Transformer fusion module,
+ordinal action heads, and a binary landing head. See
+[docs/NOLLM_ABLATION.md](docs/NOLLM_ABLATION.md) for architecture, training, and
+evaluation details.
+
+> This repository is an experimental derivative project. AeroVLA remains the
+> upstream baseline; its original project description and citation are retained
+> below for attribution and reproducibility.
+
+## AeroVLA baseline
 
 <p align="center">
   <img src="docs/assets/teaser_figure.png" width="1000" title="AeroVLA">
@@ -22,8 +41,8 @@ Vision-Language Navigation (VLN) for Unmanned Aerial Vehicles (UAVs) demands com
 **1. Clone the repository:**
 
 ```bash
-git clone https://github.com/XuPeng23/AeroVLA.git
-cd AeroVLA
+git clone https://github.com/fofo1117/AeroLiteNav.git
+cd AeroLiteNav
 ```
 
 **2. Create a Conda environment and activate it:**
@@ -75,7 +94,7 @@ AeroVLA uses the Unreal Engine-based AirSim simulator and the dataset provided b
 ## 📁 Project Structure
 
 ```text
-AeroVLA/
+AeroLiteNav/
 ├── airsim_plugin/
 ├── checkpoints/
 ├── data/                 
