@@ -131,6 +131,11 @@ class AeroVLANoLLMConfig(PretrainedConfig):
         land_pos_weight: float = 1.0,
         ordinal_loss_weight: float = 1.0,
         land_loss_weight: float = 1.0,
+        yaw_head_type: str = "ordinal",
+        yaw_label_smoothing_sigma: float = 1.5,
+        use_spatial_cross_attention: bool = False,
+        use_axis_autoregression: bool = False,
+        action_embedding_dim: int = 64,
         frozen_backbone_dtype: str = "bfloat16",
         **kwargs,
     ) -> None:
@@ -148,6 +153,13 @@ class AeroVLANoLLMConfig(PretrainedConfig):
         self.land_pos_weight = land_pos_weight
         self.ordinal_loss_weight = ordinal_loss_weight
         self.land_loss_weight = land_loss_weight
+        if yaw_head_type not in {"ordinal", "categorical"}:
+            raise ValueError(f"Unsupported yaw_head_type={yaw_head_type!r}")
+        self.yaw_head_type = yaw_head_type
+        self.yaw_label_smoothing_sigma = yaw_label_smoothing_sigma
+        self.use_spatial_cross_attention = use_spatial_cross_attention
+        self.use_axis_autoregression = use_axis_autoregression
+        self.action_embedding_dim = action_embedding_dim
         self.frozen_backbone_dtype = frozen_backbone_dtype
         self.action_stats = ACTION_STATS
 
@@ -228,9 +240,39 @@ class AeroVLANoLLMModel(PreTrainedModel):
             norm_first=True,
         )
         self.fusion_transformer = nn.TransformerEncoder(layer, config.num_layers, norm=nn.LayerNorm(config.d_model))
+        if config.use_spatial_cross_attention:
+            self.axis_queries = nn.Parameter(torch.zeros(3, config.d_model))
+            self.axis_cross_attention = nn.MultiheadAttention(
+                config.d_model, config.num_heads, dropout=config.dropout, batch_first=True
+            )
+            self.axis_fusion = nn.ModuleList(
+                nn.Sequential(
+                    nn.Linear(2 * config.d_model, config.d_model),
+                    nn.GELU(),
+                    nn.LayerNorm(config.d_model),
+                )
+                for _ in range(3)
+            )
         self.forward_head = MonotonicOrdinalHead(config.d_model, config.num_bins)
         self.down_head = MonotonicOrdinalHead(config.d_model, config.num_bins)
-        self.yaw_head = MonotonicOrdinalHead(config.d_model, config.num_bins)
+        self.yaw_head = (
+            nn.Linear(config.d_model, config.num_bins)
+            if config.yaw_head_type == "categorical"
+            else MonotonicOrdinalHead(config.d_model, config.num_bins)
+        )
+        if config.use_axis_autoregression:
+            self.yaw_action_embedding = nn.Embedding(config.num_bins, config.action_embedding_dim)
+            self.forward_action_embedding = nn.Embedding(config.num_bins, config.action_embedding_dim)
+            self.forward_conditioner = nn.Sequential(
+                nn.Linear(config.d_model + config.action_embedding_dim, config.d_model),
+                nn.GELU(),
+                nn.LayerNorm(config.d_model),
+            )
+            self.down_conditioner = nn.Sequential(
+                nn.Linear(config.d_model + 2 * config.action_embedding_dim, config.d_model),
+                nn.GELU(),
+                nn.LayerNorm(config.d_model),
+            )
         self.land_head = nn.Linear(config.d_model, 1)
         self._init_trainable_parameters()
         self.freeze_backbones()
@@ -240,6 +282,8 @@ class AeroVLANoLLMModel(PreTrainedModel):
         nn.init.trunc_normal_(self.position_embedding, std=0.02)
         nn.init.normal_(self.direction_embedding.weight, std=0.02)
         nn.init.normal_(self.modality_embedding.weight, std=0.02)
+        if self.config.use_spatial_cross_attention:
+            nn.init.trunc_normal_(self.axis_queries, std=0.02)
 
     def freeze_backbones(self) -> None:
         for backbone in (self.vision_backbone, self.text_backbone):
@@ -262,6 +306,20 @@ class AeroVLANoLLMModel(PreTrainedModel):
     def _ordinal_targets(labels: torch.Tensor, num_bins: int, dtype: torch.dtype) -> torch.Tensor:
         thresholds = torch.arange(num_bins - 1, device=labels.device)
         return (labels[:, None] > thresholds[None, :]).to(dtype)
+
+    @staticmethod
+    def _gaussian_cross_entropy(logits: torch.Tensor, labels: torch.Tensor, sigma: float) -> torch.Tensor:
+        """Cross entropy with local, distance-aware smoothing over ordered bins."""
+        if sigma <= 0:
+            return F.cross_entropy(logits, labels)
+        bins = torch.arange(logits.shape[-1], device=logits.device, dtype=logits.dtype)
+        targets = torch.exp(-0.5 * ((bins[None, :] - labels[:, None].to(logits.dtype)) / sigma) ** 2)
+        targets = targets / targets.sum(dim=-1, keepdim=True)
+        return -(targets * F.log_softmax(logits, dim=-1)).sum(dim=-1).mean()
+
+    @staticmethod
+    def _ordinal_prediction(logits: torch.Tensor) -> torch.Tensor:
+        return (torch.sigmoid(logits) >= 0.5).sum(dim=-1)
 
     def forward(
         self,
@@ -294,39 +352,89 @@ class AeroVLANoLLMModel(PreTrainedModel):
         visual_mask = torch.ones((batch_size, 1 + visual.shape[1]), dtype=torch.bool, device=tokens.device)
         direction_mask = torch.ones((batch_size, 1), dtype=torch.bool, device=tokens.device)
         valid_mask = torch.cat((visual_mask, attention_mask.bool(), direction_mask), dim=1)
-        fused = self.fusion_transformer(tokens, src_key_padding_mask=~valid_mask)[:, 0]
+        fused_tokens = self.fusion_transformer(tokens, src_key_padding_mask=~valid_mask)
+        fused = fused_tokens[:, 0]
 
-        logits = (self.forward_head(fused), self.down_head(fused), self.yaw_head(fused))
+        if self.config.use_spatial_cross_attention:
+            visual_tokens = fused_tokens[:, 1 : 1 + visual.shape[1]]
+            queries = fused[:, None, :] + self.axis_queries[None, :, :]
+            spatial, _ = self.axis_cross_attention(queries, visual_tokens, visual_tokens, need_weights=False)
+            axis_states = tuple(
+                projector(torch.cat((fused, spatial[:, axis]), dim=-1))
+                for axis, projector in enumerate(self.axis_fusion)
+            )
+        else:
+            axis_states = (fused, fused, fused)
+
+        # Decode yaw -> forward -> down. Training uses teacher forcing; inference
+        # conditions each later head on the preceding head's predicted bin.
+        yaw_logits = self.yaw_head(axis_states[2])
+        yaw_bins = (
+            action_bins[:, 2]
+            if action_bins is not None
+            else (
+                yaw_logits.argmax(dim=-1)
+                if self.config.yaw_head_type == "categorical"
+                else self._ordinal_prediction(yaw_logits)
+            )
+        )
+        forward_state = axis_states[0]
+        if self.config.use_axis_autoregression:
+            yaw_embedding = self.yaw_action_embedding(yaw_bins)
+            forward_state = self.forward_conditioner(torch.cat((forward_state, yaw_embedding), dim=-1))
+        forward_logits = self.forward_head(forward_state)
+        forward_bins = action_bins[:, 0] if action_bins is not None else self._ordinal_prediction(forward_logits)
+        down_state = axis_states[1]
+        if self.config.use_axis_autoregression:
+            forward_embedding = self.forward_action_embedding(forward_bins)
+            down_state = self.down_conditioner(torch.cat((down_state, yaw_embedding, forward_embedding), dim=-1))
+        down_logits = self.down_head(down_state)
         land_logits = self.land_head(fused).squeeze(-1)
         loss = None
         if action_bins is not None and land_labels is not None:
-            ordinal_loss = sum(
+            forward_down_loss = sum(
                 F.binary_cross_entropy_with_logits(
                     axis_logits,
                     self._ordinal_targets(action_bins[:, axis], self.config.num_bins, axis_logits.dtype),
                 )
-                for axis, axis_logits in enumerate(logits)
-            ) / 3.0
+                for axis, axis_logits in ((0, forward_logits), (1, down_logits))
+            )
+            yaw_loss = (
+                self._gaussian_cross_entropy(yaw_logits, action_bins[:, 2], self.config.yaw_label_smoothing_sigma)
+                if self.config.yaw_head_type == "categorical"
+                else F.binary_cross_entropy_with_logits(
+                    yaw_logits,
+                    self._ordinal_targets(action_bins[:, 2], self.config.num_bins, yaw_logits.dtype),
+                )
+            )
+            action_loss = (forward_down_loss + yaw_loss) / 3.0
             pos_weight = torch.as_tensor(self.config.land_pos_weight, device=land_logits.device, dtype=land_logits.dtype)
             land_loss = F.binary_cross_entropy_with_logits(
                 land_logits, land_labels.to(land_logits.dtype), pos_weight=pos_weight
             )
-            loss = self.config.ordinal_loss_weight * ordinal_loss + self.config.land_loss_weight * land_loss
+            loss = self.config.ordinal_loss_weight * action_loss + self.config.land_loss_weight * land_loss
         return AeroVLANoLLMOutput(
             loss=loss,
-            forward_logits=logits[0],
-            down_logits=logits[1],
-            yaw_logits=logits[2],
+            forward_logits=forward_logits,
+            down_logits=down_logits,
+            yaw_logits=yaw_logits,
             land_logits=land_logits,
         )
 
     @torch.no_grad()
     def predict_actions(self, **inputs):
         output = self(**inputs)
+        yaw_bins = (
+            output.yaw_logits.argmax(dim=-1)
+            if self.config.yaw_head_type == "categorical"
+            else self._ordinal_prediction(output.yaw_logits)
+        )
         bins = torch.stack(
-            tuple((torch.sigmoid(x) >= 0.5).sum(dim=-1) for x in (
-                output.forward_logits, output.down_logits, output.yaw_logits
-            )),
+            (
+                self._ordinal_prediction(output.forward_logits),
+                self._ordinal_prediction(output.down_logits),
+                yaw_bins,
+            ),
             dim=-1,
         )
         return bins, torch.sigmoid(output.land_logits)
