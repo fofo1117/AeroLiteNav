@@ -10,6 +10,7 @@ from utils.logger import logger
 from utils.utils import *
 from src.model_wrapper.aerovla_wrapper_ui import AerialVLAWrapper
 from src.model_wrapper.aerovla_nollm_wrapper import AeroVLANoLLMWrapper
+from src.model_wrapper.aerovla_crossattn_wrapper import AeroVLACrossAttentionWrapper
 from src.model_wrapper.base_model import BaseModelWrapper
 from src.common.param import args, model_args, data_args
 from env_uav import AirVLNENV
@@ -115,7 +116,12 @@ if __name__ == "__main__":
 
     args.DistributedDataParallel = False
     
-    wrapper_class = AeroVLANoLLMWrapper if model_args.model_variant == "nollm" else AerialVLAWrapper
+    wrapper_classes = {
+        "llm": AerialVLAWrapper,
+        "nollm": AeroVLANoLLMWrapper,
+        "crossattn": AeroVLACrossAttentionWrapper,
+    }
+    wrapper_class = wrapper_classes[model_args.model_variant]
     model_wrapper = wrapper_class(model_args=model_args, data_args=data_args)
     
     # [Important Note for AerialVLA]
