@@ -13,6 +13,9 @@ ordinal action heads, and a binary landing head. See
 [docs/NOLLM_ABLATION.md](docs/NOLLM_ABLATION.md) for architecture, training, and
 evaluation details.
 
+The newer MobileCLIP-based stable iteration, offline assets, and GPU launch
+instructions are documented in [docs/LITE_ITERATION.md](docs/LITE_ITERATION.md).
+
 > This repository is an experimental derivative project. AeroVLA remains the
 > upstream baseline; its original project description and citation are retained
 > below for attribution and reproducibility.

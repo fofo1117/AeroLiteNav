@@ -75,8 +75,9 @@ class DataArguments:
 @dataclass
 class ModelArguments:
     model_path: Optional[str] = field(default="facebook/opt-350m")
-    model_variant: str = field(default="llm", metadata={"help": "llm, nollm, or crossattn"})
+    model_variant: str = field(default="llm", metadata={"help": "llm, nollm, crossattn, or lite"})
     land_threshold: float = field(default=0.5)
+    safety_depth_threshold_m: float = field(default=0.0)
     model_base: Optional[str] = field(default=None)
     traj_model_path: Optional[str] = field(default=None)
     vision_tower: Optional[str] = field(default=None)

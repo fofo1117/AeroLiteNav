@@ -5,7 +5,9 @@ accelerate==0.32.1
 tensorboard==2.21.0
 # Native BF16 LoRA training does not use bitsandbytes.
 # Installing it makes PEFT import an incompatible Triton backend.
-timm==0.9.10
+timm==1.0.20
+open_clip_torch==2.32.0
+ftfy==6.3.1
 einops==0.6.1
 # flash-attn==2.5.8
 # airsim==1.8.1
